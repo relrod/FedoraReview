@@ -288,6 +288,7 @@ class ReviewRequest(object):
         self.srpmfile = os.path.expanduser(args.srpmfile)
         self.specfile = os.path.expanduser(args.specfile)
         self.spec = rpm.spec(self.specfile)
+        self.settings.upload_target = self.settings.upload_target.replace('{pkgname}', self.retrieve_name())
         if not args.no_build:
             (output_build, returncode) = self.do_scratch_build(
                 target=args.koji_target)
@@ -298,6 +299,10 @@ class ReviewRequest(object):
         self.info['description'] = self.retrieve_description()
         self.info['name'] = self.retrieve_name()
         self.find_existing_reviews()
+        (output_create_dirs, returncode) = self.create_directories()
+        if returncode != 0:
+            raise FedoraCreateReviewError(
+                    'Something happened while creating directories:\n %s' % output_create_dirs)
         (output_upload, returncode) = self.upload_files()
         if returncode != 0:
             raise FedoraCreateReviewError(
@@ -327,6 +332,21 @@ class ReviewRequest(object):
         summary = self.spec.packages[0].header[1004]
         self.log.debug('Summary: %s' % summary)
         return summary
+
+    def create_directories(self):
+        """ Create any/all parent directories needed for upload. """
+        print 'Creating necessary directories for upload on fedorapeople'
+        self.log.debug('Target: %s' % self.settings.upload_target)
+
+        (host, path) = self.settings.upload_target.split(':')
+        cmd = ['ssh', host, 'mkdir -p %s' % path]
+        self.log.debug(cmd)
+        try:
+            proc = Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output = proc.communicate()[0]
+        except OSError, err:
+            print "OSError : %s" % str(err)
+        return (output, proc.returncode)
 
     def upload_files(self):
         """ Upload the spec file and the src.rpm files into
